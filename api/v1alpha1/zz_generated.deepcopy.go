@@ -21,7 +21,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	apiv1alpha1 "sigs.k8s.io/cluster-api-addon-provider-helm/api/v1alpha1"
@@ -149,6 +149,13 @@ func (in *Machine) DeepCopyInto(out *Machine) {
 		in, out := &in.Address, &out.Address
 		*out = new(string)
 		**out = **in
+	}
+	if in.ConfigPatches != nil {
+		in, out := &in.ConfigPatches, &out.ConfigPatches
+		*out = make([]runtime.RawExtension, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 	if in.MachineRef != nil {
 		in, out := &in.MachineRef, &out.MachineRef
