@@ -477,6 +477,17 @@ func (r *TalosControlPlaneReconciler) handleTalosMachines(ctx context.Context, t
 			patches = append(patches, machine.ConfigPatches...)
 		}
 
+		// AdditionalConfig:
+		var additionalConfig []runtime.RawExtension
+		// First append control plane level additionalConfig (if any) to the additionalConfig array:
+		if tcp.Spec.MetalSpec.MachineSpec != nil && len(tcp.Spec.MetalSpec.MachineSpec.AdditionalConfig) > 0 {
+			additionalConfig = append(additionalConfig, tcp.Spec.MetalSpec.MachineSpec.AdditionalConfig...)
+		}
+		// Then append this machine's specific additionalConfig (if any):
+		if len(machine.AdditionalConfig) > 0 {
+			additionalConfig = append(additionalConfig, machine.AdditionalConfig...)
+		}
+
 		_, err := controllerutil.CreateOrUpdate(ctx, r.Client, tm, func() error {
 			if err := controllerutil.SetControllerReference(tcp, tm, r.Scheme); err != nil {
 				return fmt.Errorf("failed to set controller reference for TalosMachine %s: %w", tm.Name, err)
@@ -499,7 +510,7 @@ func (r *TalosControlPlaneReconciler) handleTalosMachines(ctx context.Context, t
 					ImageCache:                     tcp.Spec.MetalSpec.MachineSpec.ImageCache,
 					AllowSchedulingOnControlPlanes: tcp.Spec.MetalSpec.MachineSpec.AllowSchedulingOnControlPlanes,
 					Registries:                     tcp.Spec.MetalSpec.MachineSpec.Registries,
-					AdditionalConfig:               tcp.Spec.MetalSpec.MachineSpec.AdditionalConfig,
+					AdditionalConfig:               additionalConfig,
 					ConfigPatches:                  patches,
 				},
 				ConfigRef: tcp.Spec.ConfigRef,

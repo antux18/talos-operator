@@ -137,6 +137,10 @@ type Machine struct {
 	// address is the IP address of the Talos machine.
 	// +kubebuilder:validation:Pattern=`^(\d{1,3}\.){3}\d{1,3}$`
 	Address *string `json:"address,omitempty"`
+	// additionalConfig is additional Talos configuration to append to the generated config.
+	// Unlike the control plane level property of the same name, this one is individual to each machine.
+	// +kubebuilder:validation:Optional
+	AdditionalConfig []runtime.RawExtension `json:"additionalConfig,omitempty"`
 	// configPatches is a list of strategic merge patches applied to the generated Talos machine config.
 	// Unlike additionalConfig (which appends a separate YAML document), each patch is merged into
 	// the main machine config, allowing you to override or extend any field (e.g. machine.network).

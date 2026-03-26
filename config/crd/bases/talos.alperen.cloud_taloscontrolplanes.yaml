@@ -115,8 +115,10 @@ spec:
                       additionalConfig:
                         description: AdditionalConfig is additional Talos configuration
                           to append to the generated config.
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
+                        items:
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                        type: array
                       airGap:
                         default: false
                         description: AirGap indicates whether the machine is in an
@@ -188,6 +190,14 @@ spec:
                       the Talos control plane.
                     items:
                       properties:
+                        additionalConfig:
+                          description: |-
+                            additionalConfig is additional Talos configuration to append to the generated config.
+                            Unlike the control plane level property of the same name, this one is individual to each machine.
+                          items:
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                          type: array
                         address:
                           description: Address is the IP address of the Talos machine.
                           pattern: ^(\d{1,3}\.){3}\d{1,3}$

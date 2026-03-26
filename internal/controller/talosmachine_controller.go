@@ -213,10 +213,12 @@ func (r *TalosMachineReconciler) handleControlPlaneMachine(ctx context.Context, 
 			*cpConfig = append(*cpConfig, []byte(talos.ImageCacheVolumeConfig)...)
 		}
 		// If there is additionalConfig, merge it with the generated config
-		if tm.Spec.MachineSpec != nil && tm.Spec.MachineSpec.AdditionalConfig != nil {
-			// Add --- delimeter and then the additional config
-			*cpConfig = append(*cpConfig, []byte("\n---\n")...)
-			*cpConfig = append(*cpConfig, tm.Spec.MachineSpec.AdditionalConfig.Raw...)
+		if tm.Spec.MachineSpec != nil && len(tm.Spec.MachineSpec.AdditionalConfig) > 0 {
+			for _, c := range tm.Spec.MachineSpec.AdditionalConfig {
+				// Add --- delimeter and then the additional config
+				*cpConfig = append(*cpConfig, []byte("\n---\n")...)
+				*cpConfig = append(*cpConfig, c.Raw...)
+			}
 		}
 	}
 	// Check if the current config is the same as the one in status
