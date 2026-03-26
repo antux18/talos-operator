@@ -172,6 +172,16 @@ spec:
                           description: Address is the IP address of the Talos machine.
                           pattern: ^(\d{1,3}\.){3}\d{1,3}$
                           type: string
+                        configPatches:
+                          description: |-
+                            configPatches is a list of strategic merge patches applied to the generated Talos machine config.
+                            Unlike additionalConfig (which appends a separate YAML document), each patch is merged into
+                            the main machine config, allowing you to override or extend any field (e.g. machine.network).
+                            Unlike the control plane level property of the same name, this one is individual to each machine.
+                          items:
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                          type: array
                         machineRef:
                           description: MachineRef is a reference to a Kubernetes object
                             from which the machine IP address can be extracted.

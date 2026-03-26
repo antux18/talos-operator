@@ -453,6 +453,30 @@ func (r *TalosControlPlaneReconciler) handleTalosMachines(ctx context.Context, t
 		tm := &talosv1alpha1.TalosMachine{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: tcp.Namespace, Annotations: annotations},
 		}
+
+		// Find the machine having the current IP in the array of machines (useful later):
+		var machine talosv1alpha1.Machine
+		for _, m := range tcp.Spec.MetalSpec.Machines {
+			curIP, err := getMachineIPAddress(ctx, r.Client, &m)
+			if err != nil {
+				return err
+			}
+			if *curIP == ip {
+				machine = m
+			}
+		}
+
+		// MachineConfig patches:
+		var patches []runtime.RawExtension
+		// First append control plane level configPatches (if any) to the patches array:
+		if tcp.Spec.MetalSpec.MachineSpec != nil && len(tcp.Spec.MetalSpec.MachineSpec.ConfigPatches) > 0 {
+			patches = append(patches, tcp.Spec.MetalSpec.MachineSpec.ConfigPatches...)
+		}
+		// Then append this machine's specific configPatches (if any):
+		if len(machine.ConfigPatches) > 0 {
+			patches = append(patches, machine.ConfigPatches...)
+		}
+
 		_, err := controllerutil.CreateOrUpdate(ctx, r.Client, tm, func() error {
 			if err := controllerutil.SetControllerReference(tcp, tm, r.Scheme); err != nil {
 				return fmt.Errorf("failed to set controller reference for TalosMachine %s: %w", tm.Name, err)
@@ -464,10 +488,21 @@ func (r *TalosControlPlaneReconciler) handleTalosMachines(ctx context.Context, t
 					Namespace:  tcp.Namespace,
 					APIVersion: talosv1alpha1.GroupVersion.String(),
 				},
-				Endpoint:    ip,
-				Version:     tcp.Spec.Version,
-				MachineSpec: tcp.Spec.MetalSpec.MachineSpec,
-				ConfigRef:   tcp.Spec.ConfigRef,
+				Endpoint: ip,
+				Version:  tcp.Spec.Version,
+				MachineSpec: &talosv1alpha1.MachineSpec{
+					InstallDisk:                    tcp.Spec.MetalSpec.MachineSpec.InstallDisk,
+					Wipe:                           tcp.Spec.MetalSpec.MachineSpec.Wipe,
+					Image:                          tcp.Spec.MetalSpec.MachineSpec.Image,
+					Meta:                           tcp.Spec.MetalSpec.MachineSpec.Meta,
+					AirGap:                         tcp.Spec.MetalSpec.MachineSpec.AirGap,
+					ImageCache:                     tcp.Spec.MetalSpec.MachineSpec.ImageCache,
+					AllowSchedulingOnControlPlanes: tcp.Spec.MetalSpec.MachineSpec.AllowSchedulingOnControlPlanes,
+					Registries:                     tcp.Spec.MetalSpec.MachineSpec.Registries,
+					AdditionalConfig:               tcp.Spec.MetalSpec.MachineSpec.AdditionalConfig,
+					ConfigPatches:                  patches,
+				},
+				ConfigRef: tcp.Spec.ConfigRef,
 			}
 			return nil
 		})

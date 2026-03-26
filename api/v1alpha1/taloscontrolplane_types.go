@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -136,6 +137,12 @@ type Machine struct {
 	// address is the IP address of the Talos machine.
 	// +kubebuilder:validation:Pattern=`^(\d{1,3}\.){3}\d{1,3}$`
 	Address *string `json:"address,omitempty"`
+	// configPatches is a list of strategic merge patches applied to the generated Talos machine config.
+	// Unlike additionalConfig (which appends a separate YAML document), each patch is merged into
+	// the main machine config, allowing you to override or extend any field (e.g. machine.network).
+	// Unlike the control plane level property of the same name, this one is individual to each machine.
+	// +kubebuilder:validation:Optional
+	ConfigPatches []runtime.RawExtension `json:"configPatches,omitempty"`
 	// machineRef is a reference to a Kubernetes object from which the machine IP address can be extracted.
 	// +kubebuilder:validation:Optional
 	MachineRef *corev1.ObjectReference `json:"machineRef,omitempty"`
