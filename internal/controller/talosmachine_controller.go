@@ -615,6 +615,9 @@ func (r *TalosMachineReconciler) CheckMachineReady(ctx context.Context, tm *talo
 func (r *TalosMachineReconciler) UpgradeOrApplyConfig(ctx context.Context, tm *talosv1alpha1.TalosMachine, bc *talos.BundleConfig, config *[]byte) error {
 	// Check whether we need to construct maintenance mode or not
 	insecure := tm.Status.State == "" || tm.Status.State == talosv1alpha1.StatePending
+	// Modifying the endpoints array in the bundle config to only include the machine we are working on, to prevent the config from being sent to another node:
+	var endpoints = []string{tm.Spec.Endpoint}
+	bc.ClientEndpoint = &endpoints
 	// Create Talos client
 	tc, err := talos.NewClient(bc, insecure) // true for insecure TLS
 	if err != nil {
