@@ -233,8 +233,9 @@ func main() {
 	// Create external watchers for each resource type with auto-register
 	talosMachineWatcher := watcher.NewExternalWatcher(
 		&internalwatcher.TalosMachineFetcher{
-			Reader:   mgr.GetClient(),
+			Client:   mgr.GetClient(),
 			Resolver: talosMachineReconciler,
+			Recorder: mgr.GetEventRecorder("talosmachine-watcher"),
 			Log:      watcherLogger.WithName("talosmachine"),
 		},
 		watcher.WithDefaultPollInterval(180*time.Second),

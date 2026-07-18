@@ -278,13 +278,13 @@ func (r *TalosMachineReconciler) handleControlPlaneMachine(ctx context.Context, 
 	}
 	// Check if the current config is the same as the one in status
 	if tm.Status.Config == string(*cpConfig) && tm.Status.ObservedVersion == tm.Spec.Version {
-		drift, nodeDrifted := r.nodeDrift(tm)
-		if !nodeDrifted {
+		if tm.Status.State != talosv1alpha1.StateDrifted {
 			// Return since the machine is in desired state
 			return ctrl.Result{}, nil
 		}
-		// The CR is unchanged but the node itself diverged; fall through to re-apply.
-		r.reportNodeDrift(ctx, tm, drift)
+		// The CR is unchanged but the watcher marked the node as diverged;
+		// fall through to re-apply.
+		logger.Info("Node drifted out-of-band, re-applying desired state", "name", tm.Name)
 	}
 	// Ensure the client targets this specific machine, not the cluster name
 	bc.ClientEndpoint = &[]string{tm.Spec.Endpoint}
@@ -324,13 +324,12 @@ func (r *TalosMachineReconciler) handleWorkerMachine(ctx context.Context, tm *ta
 
 	// Check if the current config is the same as the one in status
 	if tm.Status.Config == string(*workerConfig) && tm.Status.ObservedVersion == tm.Spec.Version {
-		drift, nodeDrifted := r.nodeDrift(tm)
-		if !nodeDrifted {
+		// Check if there is also drift
+		if tm.Status.State != talosv1alpha1.StateDrifted {
 			// Return since the machine is in desired state
 			return ctrl.Result{}, nil
 		}
-		// The CR is unchanged but the node itself diverged; fall through to re-apply.
-		r.reportNodeDrift(ctx, tm, drift)
+		logger.Info("Node drifted out-of-band, re-applying desired state", "name", tm.Name)
 	}
 	err = r.UpgradeOrApplyConfig(ctx, tm, bc, workerConfig)
 	if err != nil {
@@ -732,35 +731,6 @@ func (r *TalosMachineReconciler) CheckMachineReady(ctx context.Context, tm *talo
 	return ctrl.Result{}, nil
 }
 
-// nodeDrift returns the drift observed by the external watcher's last poll
-// against the live Talos node, if any. Out-of-band node changes (a manual
-// config edit, a version change on the node itself) don't touch the CR, so
-// spec and status still match and the "already in desired state" short-circuits
-// would skip the re-apply — this signal is what forces it. The watcher clears
-// the entry once a poll observes the node back in sync.
-func (r *TalosMachineReconciler) nodeDrift(tm *talosv1alpha1.TalosMachine) (watcher.DriftInfo, bool) {
-	if r.Watcher == nil {
-		return watcher.DriftInfo{}, false
-	}
-	return r.Watcher.LastDrift(types.NamespacedName{Name: tm.Name, Namespace: tm.Namespace})
-}
-
-// reportNodeDrift logs the observed node drift and emits a NodeDriftDetected
-// event carrying the drift diff, truncated to stay within the events API's
-// 1kB note limit (an oversized note is rejected and the event silently lost).
-func (r *TalosMachineReconciler) reportNodeDrift(ctx context.Context, tm *talosv1alpha1.TalosMachine, drift watcher.DriftInfo) {
-	logger := log.FromContext(ctx)
-	logger.Info("Node drifted out-of-band, re-applying desired state",
-		"name", tm.Name, "detectedAt", drift.DetectedAt, "diff", drift.Diff)
-	const maxDiffLen = 900
-	diff := drift.Diff
-	if len(diff) > maxDiffLen {
-		diff = diff[:maxDiffLen] + "\n… (truncated, full diff in controller logs)"
-	}
-	r.Recorder.Eventf(tm, nil, corev1.EventTypeWarning, "NodeDriftDetected", "NodeDriftDetected",
-		fmt.Sprintf("Node drifted from desired state, re-applying:\n%s", diff))
-}
-
 func (r *TalosMachineReconciler) UpgradeOrApplyConfig(ctx context.Context, tm *talosv1alpha1.TalosMachine, bc *talos.BundleConfig, config *[]byte) error {
 	logger := log.FromContext(ctx)
 	dryRun := r.isDryRun(tm)
@@ -772,11 +742,8 @@ func (r *TalosMachineReconciler) UpgradeOrApplyConfig(ctx context.Context, tm *t
 		return fmt.Errorf("failed to create Talos client for TalosMachine %s: %w", tm.Name, err)
 	}
 	defer tc.Close() //nolint:errcheck
-	// Config must be (re)applied when the desired config changed in the cluster
-	// (status no longer matches) OR when the node itself drifted out-of-band —
-	// in the latter case status still matches, only the watcher knows.
-	_, nodeDrifted := r.nodeDrift(tm)
-	configDrift := tm.Status.Config != string(*config) || nodeDrifted
+	// Config must be (re)applied when the desired config changed in the machine
+	configDrift := tm.Status.Config != string(*config) || tm.Status.State == talosv1alpha1.StateDrifted
 	applyConfigurationFunc := func() error {
 		diff, err := tc.ApplyConfig(ctx, *config, dryRun)
 		if err != nil {

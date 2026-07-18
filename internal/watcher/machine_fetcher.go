@@ -11,7 +11,9 @@ import (
 	talosv1alpha1 "github.com/alperencelik/talos-operator/api/v1alpha1"
 	"github.com/alperencelik/talos-operator/pkg/talos"
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	watcher "github.com/alperencelik/kube-external-watcher/watcher"
@@ -69,12 +71,16 @@ type ConfigResolver interface {
 
 // TalosMachineFetcher implements watcher.ResourceStateFetcher for TalosMachine resources.
 type TalosMachineFetcher struct {
-	Reader   client.Reader
+	Client   client.Client
 	Resolver ConfigResolver
+	Recorder events.EventRecorder
 	Log      logr.Logger
 }
 
-var _ watcher.ResourceStateFetcher = (*TalosMachineFetcher)(nil)
+var (
+	_ watcher.ResourceStateFetcher  = (*TalosMachineFetcher)(nil)
+	_ watcher.ResourceStatusUpdater = (*TalosMachineFetcher)(nil)
+)
 
 func (f *TalosMachineFetcher) GetDesiredState(ctx context.Context, key types.NamespacedName) (any, error) {
 	tm, err := f.get(ctx, key)
@@ -142,6 +148,52 @@ func (f *TalosMachineFetcher) TransformExternalState(raw any) (any, error) {
 	return raw, nil
 }
 
+// UpdateResourceStatus marks a machine as Drifted when the node's observed
+// state diverged from the desired state
+func (f *TalosMachineFetcher) UpdateResourceStatus(ctx context.Context, key types.NamespacedName, externalState any) error {
+	state, ok := externalState.(MachineState)
+	if !ok {
+		return fmt.Errorf("unexpected external state type: %T", externalState)
+	}
+	tm, err := f.get(ctx, key)
+	if err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if !tm.DeletionTimestamp.IsZero() || !reconcileModeAllowsStatusWrites(tm) {
+		return nil
+	}
+	drifted := state.Version != tm.Spec.Version || state.ConfigDiff != ""
+	if !drifted || tm.Status.State != talosv1alpha1.StateAvailable {
+		return nil
+	}
+	orig := tm.DeepCopy()
+	tm.Status.State = talosv1alpha1.StateDrifted
+	if err := f.Client.Status().Patch(ctx, tm, client.MergeFrom(orig)); err != nil {
+		return fmt.Errorf("mark TalosMachine %s as drifted: %w", key, err)
+	}
+	f.Recorder.Eventf(tm, nil, corev1.EventTypeWarning, "NodeDriftDetected", "NodeDriftDetected",
+		"Node drifted from desired state, re-applying:\n%s", truncateDiff(MachineStateComparator{}.Diff(MachineState{Version: tm.Spec.Version}, state)))
+	return nil
+}
+
+// reconcileModeAllowsStatusWrites reports whether the operator may persist
+// status on the machine: DryRun must not persist anything and Disable means
+// hands off entirely.
+func reconcileModeAllowsStatusWrites(tm *talosv1alpha1.TalosMachine) bool {
+	mode := strings.ToLower(tm.Annotations[talosv1alpha1.ReconcileModeAnnotation])
+	return mode != talosv1alpha1.ReconcileModeDryRun && mode != talosv1alpha1.ReconcileModeDisable
+}
+
+// truncateDiff keeps the event note within the events API's 1kB limit — an
+// oversized note is rejected and the event silently lost.
+func truncateDiff(diff string) string {
+	const maxDiffLen = 900
+	if len(diff) > maxDiffLen {
+		return diff[:maxDiffLen] + "\n… (truncated, full diff in operator logs)"
+	}
+	return diff
+}
+
 // IsResourceReadyToWatch reports whether a machine should be watched for drift.
 // Only "Available" machines are watched.
 func (f *TalosMachineFetcher) IsResourceReadyToWatch(ctx context.Context, key types.NamespacedName) bool {
@@ -152,12 +204,13 @@ func (f *TalosMachineFetcher) IsResourceReadyToWatch(ctx context.Context, key ty
 	if !tm.DeletionTimestamp.IsZero() {
 		return false
 	}
-	return tm.Status.State == talosv1alpha1.StateAvailable && tm.Spec.Endpoint != ""
+	watchable := tm.Status.State == talosv1alpha1.StateAvailable || tm.Status.State == talosv1alpha1.StateDrifted
+	return watchable && tm.Spec.Endpoint != ""
 }
 
 func (f *TalosMachineFetcher) get(ctx context.Context, key types.NamespacedName) (*talosv1alpha1.TalosMachine, error) {
 	var tm talosv1alpha1.TalosMachine
-	if err := f.Reader.Get(ctx, key, &tm); err != nil {
+	if err := f.Client.Get(ctx, key, &tm); err != nil {
 		return nil, err
 	}
 	return &tm, nil

@@ -1,5 +1,9 @@
 package controller
 
+import (
+	talosv1alpha1 "github.com/alperencelik/talos-operator/api/v1alpha1"
+)
+
 const (
 	TalosPlatformKey = "PLATFORM"
 	// TalosModeContainer is the mode for Talos running in a container
@@ -11,20 +15,21 @@ const (
 	TalosMachineTypeControlPlane = "controlplane"
 	TalosMachineTypeWorker       = "worker"
 
-	// Reconcile Modes
+	// Reconcile Modes — aliases of the api/v1alpha1 constants, kept so the
+	// controller package keeps its historical names.
 
 	// ReconcileModeAnnotation is the annotation key for the reconcile mode
-	ReconcileModeAnnotation = "talos.alperen.cloud/reconcile-mode"
+	ReconcileModeAnnotation = talosv1alpha1.ReconcileModeAnnotation
 	// ReconcileMode is the mode of the reconciliation, it could be Reconcile, Disable or DryRun
-	ReconcileModeNormal  = "reconcile"
-	ReconcileModeDisable = "disable"
+	ReconcileModeNormal  = talosv1alpha1.ReconcileModeNormal
+	ReconcileModeDisable = talosv1alpha1.ReconcileModeDisable
 	// ReconcileModeDryRun runs the reconciliation without performing any mutating operations.
 	// Kubernetes writes are validated via server-side dry-run; Talos API and file-system
 	// operations are skipped and reported as "Would do X" events.
-	ReconcileModeDryRun = "dryrun"
+	ReconcileModeDryRun = talosv1alpha1.ReconcileModeDryRun
 
 	// ReconcileModeImport is the mode for importing existing Talos resources
-	ReconcileModeImport = "import"
+	ReconcileModeImport = talosv1alpha1.ReconcileModeImport
 
 	// For tests
 	DefaultNamespace = "default"

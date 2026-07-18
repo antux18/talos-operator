@@ -53,8 +53,14 @@ stateDiagram-v2
     Available --> Upgrading: spec.talosVersion changed
     Upgrading --> Available: kubelet service running after upgrade
 
+    Available --> Drifted: watcher detects out-of-band node change
+    Drifted --> Installing: desired config re-applied
+    Drifted --> Upgrading: node Talos version diverged
+
     Orphaned --> [*]: skipped — reconciliation halts
 ```
+
+`Drifted` is written by the external drift watcher, not the reconciler — see [Drift Detection](drift_detection.md). It marks a machine whose live node state diverged from the desired state without any change to the Custom Resource (e.g. a manual `talosctl apply-config`); the next reconcile re-applies the desired state through the normal `Installing`/`Upgrading` path.
 
 !!! note
     On deletion, `TalosMachine` does **not** transition to a terminal state — the finalizer either issues a Talos `reset` (when the deletion policy requests it) or just removes the finalizer. `Orphaned` machines always skip the reset step.
@@ -80,6 +86,7 @@ stateDiagram-v2
 | `Installing`              |         —         |       ✓      |      —      |
 | `Available`               |         ✓         |       ✓      |      —      |
 | `Upgrading`               |         —         |       ✓      |      —      |
+| `Drifted`                 |         —         |       ✓      |      —      |
 | `Bootstrapped`            |         ✓         |       —      |      —      |
 | `Ready`                   |         ✓         |       —      |      ✓      |
 | `UpgradingKubernetes`     |         ✓         |       —      |      —      |

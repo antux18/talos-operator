@@ -12,21 +12,23 @@ For every `TalosMachine` that is in the `Available` state, the watcher runs a ba
 2. Reads the node's reported Talos version and compares it against `spec.version`.
 3. Builds the desired machine config for the machine and performs a **dry-run apply** against the node. The node responds with the diff between its running config and the desired config, without changing anything.
 
-If the version differs or the node reports a non-empty config diff, the machine is considered **drifted**:
+If the version differs or the node reports a non-empty config diff, the machine is considered **drifted** and the drift becomes part of the machine's state machine:
 
-- The watcher records the drift and enqueues a reconciliation for the `TalosMachine`.
-- The controller sees that the node diverged (even though `spec` and `status` still match) and re-applies the desired config to bring the node back in line.
-- A `NodeDriftDetected` warning event is emitted on the `TalosMachine` object carrying the diff reported by the node (truncated if large; the full diff is available in the controller logs).
+- The watcher sets the machine's `status.state` to **`Drifted`**, emits a `NodeDriftDetected` warning event carrying the diff reported by the node (truncated if large; the full diff is available in the operator logs), and enqueues a reconciliation.
+- The controller sees the `Drifted` state (even though `spec` and `status` otherwise still match) and re-applies the desired config, moving the machine to `Installing` — or triggers an upgrade (`Upgrading`) when the node's Talos version diverged.
+- Once the kubelet reports running, the machine settles back into `Available`: the full loop is `Available → Drifted → Installing → Available`.
 
-When a later poll observes the node back in sync, the drift entry is cleared and no further reconciles are triggered — a healthy, unchanged machine causes no reconciliation at all.
+Applying is what consumes the drift signal — the state transition to `Installing`/`Upgrading` clears `Drifted`, so a handled drift is not re-applied twice. If the node is still diverged at the next poll (something on the node keeps rewriting the config), it is simply marked `Drifted` again. A healthy, unchanged machine causes no state change and no reconciliation at all.
 
 ```mermaid
 flowchart LR
     W[External watcher<br/>poll every 3m] -->|version + dry-run config diff| N[Talos node]
+    W -->|"set status.state = Drifted<br/>+ NodeDriftDetected event"| K[Kubernetes API]
     W -->|drift detected| R[TalosMachine<br/>reconciler]
-    R -->|re-apply desired config| N
-    R -->|NodeDriftDetected event| K[Kubernetes API]
+    R -->|"re-apply desired config<br/>(Drifted → Installing → Available)"| N
 ```
+
+Only the `Available → Drifted` transition is ever written by the watcher: a machine that is already `Installing` or `Upgrading` is being converged by the reconciler, and a poll that started before that apply cannot overwrite it.
 
 ## What counts as drift
 
@@ -39,20 +41,24 @@ flowchart LR
 
 Machines are registered with the watcher automatically; there is nothing to configure. A machine is only polled when:
 
-- its `status.state` is `Available` (machines that are still booting, installing, or being deleted are skipped), and
+- its `status.state` is `Available` or `Drifted` (machines that are still booting, installing, or being deleted are skipped), and
 - `spec.endpoint` is set.
+
+Machines annotated with the `DryRun` or `Disable` [reconciliation mode](reconciliation_modes.md) are never marked `Drifted` — the operator does not persist status for them.
 
 Machines that are not ready yet are retried until they become watchable. Spec changes to a `TalosMachine` re-register it with the watcher; status-only updates are ignored.
 
 ## Observing drift
 
-To see whether a machine has drifted and what the operator did about it:
+A drifted machine is directly visible in the state column:
 
 ```bash
-kubectl describe talosmachine <name>
+kubectl get talosmachine
+NAME        STATE     VERSION   ENDPOINT
+machine-a   Drifted   v1.9.0    10.1.1.10
 ```
 
-Look for `NodeDriftDetected` events. The controller logs also contain a `TalosMachine drift detected` entry with the desired/observed versions and the config diff.
+For the details, look for `NodeDriftDetected` events in `kubectl describe talosmachine <name>`. The operator logs also contain a `TalosMachine drift detected` entry with the desired/observed versions and the config diff.
 
 The watcher additionally exposes Prometheus metrics on the operator's metrics endpoint:
 

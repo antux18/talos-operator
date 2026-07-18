@@ -22,12 +22,21 @@ const (
 	// State for TalosMachine
 	StateOrphaned = "Orphaned" // Machine is not managed by any TalosCluster or TalosControlPlane
 	StateBooting  = "Booting"  // Machine is booting into Talos
+	StateDrifted  = "Drifted"  // Node state diverged out-of-band from the desired state; the desired config will be re-applied
 	// State for TalosControlPlane and TalosMachine
 	StatePending = "Pending" // Control plane is being created / Machine has finished booting into Talos
 
 	// State secret labels — used to identify per-control-plane state backup Secrets
 	StateSecretLabelKey   = "talos.alperen.cloud/type"
 	StateSecretLabelValue = "state"
+
+	// Reconcile modes — user-facing annotation controlling how (or whether)
+	// the operator reconciles an object. Values are matched case-insensitively.
+	ReconcileModeAnnotation = "talos.alperen.cloud/reconcile-mode"
+	ReconcileModeNormal     = "reconcile"
+	ReconcileModeDisable    = "disable"
+	ReconcileModeDryRun     = "dryrun"
+	ReconcileModeImport     = "import"
 
 	// Finalizers
 	TalosClusterFinalizer             = "taloscluster.talos.alperen.cloud/finalizer"
